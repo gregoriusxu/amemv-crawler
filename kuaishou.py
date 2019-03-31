@@ -4,7 +4,7 @@ import requests
 import re
 
 
-class HuoShanParse(object):
+class KuaiShouParse(object):
     def __init__(self, items):
         self.queue = Queue.Queue()
 
@@ -18,6 +18,7 @@ class HuoShanParse(object):
             number = re.findall(r'share/item/(\d+)/', url)
             if not len(number):
                 return
+
             videoid = re.findall(r'http://hotsoon.snssdk.com/hotsoon/item/video/_playback/\?video_id=(.*)&amp;line=0&amp;', str(res.text))[0]
 
             downloadrul = self._get_download_url(videoid)
@@ -60,4 +61,4 @@ class HuoShanParse(object):
 
 
 if __name__ == '__main__':
-    HuoShanParse(['http://reflow.huoshan.com/hotsoon/s/UKPEALHs700'])
+    KuaiShouParse(['http://www.gifshow.com/s/oq6TI9Iw'])
