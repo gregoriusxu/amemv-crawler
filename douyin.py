@@ -1,32 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import os
-import sys
-import getopt
 import urllib.parse
 import urllib.request
 import hashlib
-import codecs
 import requests
 import re
 from six.moves import queue as Queue
 import json
-from download import DownloadQueue
-
-HEADERS = {
-    'accept-encoding':
-    'gzip, deflate, br',
-    'accept-language':
-    'zh-CN,zh;q=0.9',
-    'pragma':
-    'no-cache',
-    'cache-control':
-    'no-cache',
-    'upgrade-insecure-requests':
-    '1',
-    'user-agent':
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1",
-}
+from const import HEADERS
 
 
 def get_real_address(url):
@@ -46,13 +28,12 @@ def get_dytk(url):
     return None
 
 
-class CrawlerScheduler(object):
-    def __init__(self, items):
+class DouYinParse(object):
+    def __init__(self, items, noFavorite):
         self.numbers = []
         self.challenges = []
         self.musics = []
         self.queue = Queue.Queue()
-        DownloadQueue(self.queue)
 
         for i in range(len(items)):
             url = get_real_address(items[i])
@@ -63,13 +44,12 @@ class CrawlerScheduler(object):
                 number = re.findall(r'share/video/(\d+)/', url)
                 if not len(number):
                     return
-                target_folder = self._createdownloaddir(number[0])
 
                 rct = requests.get(url, headers=HEADERS)              
                 videoid = re.findall(r'https://aweme.snssdk.com/aweme/v1/playwm/\?video_id=(.*)&amp;line=0', str(rct.text))[0]
 
                 downloadrul = self._get_download_url(videoid)
-                self.queue.put(('video', number[0], downloadrul, target_folder))
+                self.queue.put(('video', number[0], downloadrul, number[0]))
                 print(downloadrul)
             if re.search('share/user', url):
                 self.numbers.append(url)
@@ -78,7 +58,10 @@ class CrawlerScheduler(object):
             if re.search('share/music', url):
                 self.musics.append(url)
 
-        self.scheduling()
+        self.scheduling(noFavorite)
+
+    def getParseResult(self):
+        return self.queue
 
     @staticmethod
     def generateSignature(value):
@@ -92,15 +75,15 @@ class CrawlerScheduler(object):
         hmd5.update(fp.read())
         return hmd5.hexdigest()
 
-    def scheduling(self):
+    def scheduling(self, noFavorite):
         for url in self.numbers:
-            self.download_user_videos(url)
+            self.download_user_videos(url, noFavorite)
         for url in self.challenges:
             self.download_challenge_videos(url)
         for url in self.musics:
             self.download_music_videos(url)
 
-    def download_user_videos(self, url):
+    def download_user_videos(self, url, noFavorite):
         number = re.findall(r'share/user/(\d+)', url)
         if not len(number):
             return
@@ -110,7 +93,7 @@ class CrawlerScheduler(object):
             return
         user_id = number[0]
 
-        video_count = self._download_user_media(user_id, dytk, url)
+        video_count = self._download_user_media(user_id, dytk, url, noFavorite)
         self.queue.join()
         print("\nAweme number %s, video number %s\n\n" % (user_id,
                                                           str(video_count)))
@@ -222,8 +205,8 @@ class CrawlerScheduler(object):
 
     def __download_favorite_media(self, user_id, dytk, hostname, signature,
                                   favorite_folder, video_count):
-        if not os.path.exists(favorite_folder):
-            os.makedirs(favorite_folder)
+        # if not os.path.exists(favorite_folder):
+        #     os.makedirs(favorite_folder)
         favorite_video_url = "https://%s/aweme/v1/aweme/favorite/" % hostname
         favorite_video_params = {
             'user_id': str(user_id),
@@ -253,16 +236,7 @@ class CrawlerScheduler(object):
                 break
         return video_count
 
-    def _createdownloaddir(self, dirname):
-        current_folder = os.getcwd()
-        target_folder = os.path.join(current_folder, 'download/%s' % dirname)
-        if not os.path.isdir(target_folder):
-            os.mkdir(target_folder)
-        return target_folder
-
-    def _download_user_media(self, user_id, dytk, url):
-        target_folder = self._createdownloaddir(user_id)
-
+    def _download_user_media(self, user_id, dytk, url, noFavorite):
         if not user_id:
             print("Number %s does not exist" % user_id)
             return
@@ -292,13 +266,13 @@ class CrawlerScheduler(object):
             for aweme in aweme_list:
                 video_count += 1
                 aweme['hostname'] = hostname
-                self._join_download_queue(aweme, target_folder)
+                self._join_download_queue(aweme, user_id)
             if contentJson.get('has_more'):
                 max_cursor = contentJson.get('max_cursor')
             else:
                 break
         if not noFavorite:
-            favorite_folder = target_folder + '/favorite'
+            favorite_folder = user_id + '/favorite'
             video_count = self.__download_favorite_media(
                 user_id, dytk, hostname, signature, favorite_folder,
                 video_count)
@@ -312,7 +286,6 @@ class CrawlerScheduler(object):
         if not challenge_id:
             print("Challenge #%s does not exist" % challenge_id)
             return
-        target_folder = self._createdownloaddir(challenge_id)
 
         hostname = urllib.parse.urlparse(url).hostname
         signature = self.generateSignature(str(challenge_id) + '9' + '0')
@@ -349,7 +322,7 @@ class CrawlerScheduler(object):
             for aweme in aweme_list:
                 aweme['hostname'] = hostname
                 video_count += 1
-                self._join_download_queue(aweme, target_folder)
+                self._join_download_queue(aweme, challenge_id)
                 print("number: ", video_count)
             if contentJson.get('has_more'):
                 cursor = contentJson.get('cursor')
@@ -363,7 +336,6 @@ class CrawlerScheduler(object):
         if not music_id:
             print("Challenge #%s does not exist" % music_id)
             return
-        target_folder = self._createdownloaddir(music_id)
 
         hostname = urllib.parse.urlparse(url).hostname
         signature = self.generateSignature(str(music_id))
@@ -401,7 +373,7 @@ class CrawlerScheduler(object):
             for aweme in aweme_list:
                 aweme['hostname'] = hostname
                 video_count += 1
-                self._join_download_queue(aweme, target_folder)
+                self._join_download_queue(aweme, music_id)
             if contentJson.get('has_more'):
                 cursor = contentJson.get('cursor')
             else:
@@ -409,73 +381,3 @@ class CrawlerScheduler(object):
         if video_count == 0:
             print("There's no video in music %s." % music_id)
         return video_count
-
-
-def usage():
-    print(
-        "1. Please create file share-url.txt under this same directory.\n"
-        "2. In share-url.txt, you can specify amemv share page url separated by "
-        "comma/space/tab/CR. Accept multiple lines of text\n"
-        "3. Save the file and retry.\n\n"
-        "Sample File Content:\nurl1,url2\n\n"
-        "Or use command line options:\n\n"
-        "Sample:\npython amemv-video-ripper.py url1,url2\n\n\n")
-    print(u"未找到share-url.txt文件，请创建.\n"
-          u"请在文件中指定抖音分享页面URL，并以 逗号/空格/tab/表格鍵/回车符 分割，支持多行.\n"
-          u"保存文件并重试.\n\n"
-          u"例子: url1,url12\n\n"
-          u"或者直接使用命令行参数指定链接\n"
-          u"例子: python amemv-video-ripper.py url1,url2")
-
-
-def parse_sites(fileName):
-    with open(fileName, "rb") as f:
-        txt = f.read().rstrip().lstrip()
-        txt = codecs.decode(txt, 'utf-8')
-        txt = txt.replace("\t", ",").replace("\r", ",").replace("\n",
-                                                                ",").replace(
-                                                                    " ", ",")
-        txt = txt.split(",")
-    numbers = list()
-    for raw_site in txt:
-        site = raw_site.lstrip().rstrip()
-        if site:
-            numbers.append(site)
-    return numbers
-
-
-noFavorite = False
-
-if __name__ == "__main__":
-    content, opts, args = None, None, []
-
-    try:
-        if len(sys.argv) >= 2:
-            opts, args = getopt.getopt(sys.argv[1:], "hi:o:", ["no-favorite"])
-    except Exception:
-        usage()
-        sys.exit(2)
-        raise
-
-    if not args:
-        # check the sites file
-        filename = "share-url.txt"
-        if os.path.exists(filename):
-            content = parse_sites(filename)
-        else:
-            usage()
-            sys.exit(1)
-    else:
-        content = (args[0] if args else '').split(",")
-
-    if len(content) == 0 or content[0] == "":
-        usage()
-        sys.exit(1)
-
-    if opts:
-        for o, val in opts:
-            if o in ("-nf", "--no-favorite"):
-                noFavorite = True
-                break
-
-    CrawlerScheduler(content)

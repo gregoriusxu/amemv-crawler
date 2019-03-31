@@ -7,29 +7,7 @@ import os
 import time
 from six.moves import queue as Queue
 import requests
-
-TIMEOUT = 10
-
-# Retry times
-RETRY = 5
-
-# Numbers of downloading threads concurrently
-THREADS = 10
-
-HEADERS = {
-    'accept-encoding':
-    'gzip, deflate, br',
-    'accept-language':
-    'zh-CN,zh;q=0.9',
-    'pragma':
-    'no-cache',
-    'cache-control':
-    'no-cache',
-    'upgrade-insecure-requests':
-    '1',
-    'user-agent':
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1",
-}
+from const import HEADERS, RETRY, TIMEOUT, THREADS
 
 
 def getRemoteFileSize(url, proxy=None):
@@ -101,9 +79,17 @@ class DownloadWorker(Thread):
         Thread.__init__(self)
         self.queue = queue
 
+    def _createdownloaddir(self, dirname):
+        current_folder = os.getcwd()
+        target_folder = os.path.join(current_folder, 'download/%s' % dirname)
+        if not os.path.isdir(target_folder):
+            os.mkdir(target_folder)
+        return target_folder
+
     def run(self):
         while True:
-            medium_type, uri, download_url, target_folder = self.queue.get()
+            medium_type, uri, download_url, folder_id = self.queue.get()
+            target_folder = self._createdownloaddir(folder_id)
             download(medium_type, uri, download_url, target_folder)
             self.queue.task_done()
 
